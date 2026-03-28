@@ -1,0 +1,144 @@
+streamlit
+pandas
+openpyxl
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# --- إعدادات الصفحة ---
+st.set_page_config(page_title="نظام إدارة الرواتب", layout="wide", initial_sidebar_state="expanded")
+
+# تطبيق تنسيق يدعم اللغة العربية
+st.markdown("""
+    <style>
+    .main { text-align: right; direction: rtl; }
+    div[data-testid="stSidebarNav"] { text-align: right; direction: rtl; }
+    label { text-align: right; display: block; width: 100%; }
+    .stButton>button { width: 100%; border-radius: 5px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- عنوان النظام ---
+st.title("📊 نظام الموارد البشرية والرواتب الموحد")
+st.write(f"التاريخ الحالي: {datetime.now().strftime('%Y-%m-%d')}")
+st.divider()
+
+# --- إدارة البيانات في التخزين المؤقت (Session State) ---
+if 'hr_data' not in st.session_state:
+    st.session_state.hr_data = None
+
+# --- القائمة الجانبية: رفع الملفات والتحكم ---
+with st.sidebar:
+    st.header("⚙️ لوحة التحكم")
+    st.subheader("1. رفع البيانات")
+    file_a = st.file_uploader("إكسل الشركة الأولى", type=['xlsx'])
+    file_b = st.file_uploader("إكسل الشركة الثانية", type=['xlsx'])
+    
+    if st.button("🚀 دمج وتفعيل النظام"):
+        if file_a and file_b:
+            try:
+                df1 = pd.read_excel(file_a)
+                df2 = pd.read_excel(file_b)
+                
+                # إضافة عمود الشركة للتمييز
+                df1['الشركة'] = 'الشركة الأولى'
+                df2['الشركة'] = 'الشركة الثانية'
+                
+                # دمج الملفين
+                combined = pd.concat([df1, df2], ignore_index=True)
+                
+                # إضافة أعمدة المتغيرات إذا لم تكن موجودة
+                cols_to_add = {
+                    'مكافآت': 0.0,
+                    'حسومات': 0.0,
+                    'غياب (أيام)': 0,
+                    'إجازات': 0,
+                    'الحالة': 'نشط'
+                }
+                for col, default in cols_to_add.items():
+                    if col not in combined.columns:
+                        combined[col] = default
+                
+                st.session_state.hr_data = combined
+                st.success("تم تجهيز النظام بنجاح!")
+            except Exception as e:
+                st.error(f"خطأ في قراءة الملفات: {e}")
+        else:
+            st.warning("يرجى اختيار ملفي الإكسل أولاً.")
+
+# --- عرض الواجهة الرئيسية ---
+if st.session_state.hr_data is not None:
+    
+    # صف الإحصائيات السريعة
+    total_emp = len(st.session_state.hr_data)
+    active_emp = len(st.session_state.hr_data[st.session_state.hr_data['الحالة'] == 'نشط'])
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("إجمالي الموظفين", total_emp)
+    c2.metric("الموظفين النشطين", active_emp)
+    c3.metric("الموقوفين", total_emp - active_emp)
+
+    st.divider()
+
+    # تقسيم الصفحة: إدخال البيانات على اليمين والجدول على اليسار
+    col_input, col_table = st.columns([1, 2.5])
+
+    with col_input:
+        st.subheader("📝 تعديل موظف")
+        with st.form("edit_form", clear_on_submit=True):
+            # اختيار الموظف للقيام بالتعديل عليه
+            emp_list = st.session_state.hr_data['اسم الموظف'].tolist()
+            selected_name = st.selectbox("اسم الموظف", options=emp_list)
+            
+            op_type = st.selectbox("نوع العملية", ["مكافأة", "حسم", "إضافة غياب", "إجازة", "تعديل الحالة"])
+            amount = st.number_input("المبلغ / القيمة", min_value=0.0, step=1.0)
+            new_status = st.radio("الحالة", ["نشط", "موقوف"], horizontal=True)
+            
+            if st.form_submit_button("تحديث السجل"):
+                # البحث عن الفهرس (Index) الخاص بالموظف
+                idx = st.session_state.hr_data.index[st.session_state.hr_data['اسم الموظف'] == selected_name].tolist()[0]
+                
+                # تنفيذ التعديل بناءً على الاختيار
+                if op_type == "مكافأة":
+                    st.session_state.hr_data.at[idx, 'مكافآت'] = amount
+                elif op_type == "حسم":
+                    st.session_state.hr_data.at[idx, 'حسومات'] = amount
+                elif op_type == "إضافة غياب":
+                    st.session_state.hr_data.at[idx, 'غياب (أيام)'] = amount
+                elif op_type == "إجازة":
+                    st.session_state.hr_data.at[idx, 'إجازات'] = amount
+                
+                st.session_state.hr_data.at[idx, 'الحالة'] = new_status
+                st.rerun() # تحديث الصفحة فوراً لرؤية التغيير
+
+    with col_table:
+        st.subheader("📋 كشف الرواتب والمتغيرات")
+        
+        # حساب الصافي (إذا وجد عمود الراتب الأساسي)
+        if 'الراتب الأساسي' in st.session_state.hr_data.columns:
+            st.session_state.hr_data['صافي المستحق'] = (
+                st.session_state.hr_data['الراتب الأساسي'] + 
+                st.session_state.hr_data['مكافآت'] - 
+                st.session_state.hr_data['حسومات']
+            )
+
+        # محرك بحث سريع
+        search_query = st.text_input("🔍 ابحث عن موظف بالاسم...")
+        df_to_show = st.session_state.hr_data
+        if search_query:
+            df_to_show = df_to_show[df_to_show['اسم الموظف'].str.contains(search_query, na=False)]
+
+        st.dataframe(df_to_show, use_container_width=True, hide_index=True)
+
+        # زر التحميل النهائي
+        csv_data = st.session_state.hr_data.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 تحميل التقرير النهائي (Excel/CSV)",
+            data=csv_data,
+            file_name=f"HR_Report_{datetime.now().strftime('%Y-%m')}.csv",
+            mime='text/csv'
+        )
+
+else:
+    st.info("👋 مرحباً بك! يرجى رفع ملفات الإكسل للشركتين من القائمة الجانبية لبناء قاعدة البيانات.")
+    st.image("https://via.placeholder.com/800x400.png?text=Waiting+for+Data+Upload", use_column_width=True)
