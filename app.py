@@ -2,88 +2,89 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# --- إعدادات الصفحة والتصميم ---
-st.set_page_config(page_title="HR System", layout="wide")
+# --- إعدادات الصفحة ---
+st.set_page_config(page_title="نظام مسيرات الرواتب", layout="wide")
 
-# كود لتنسيق الواجهة لتدعم اللغة العربية
+# تنسيق الواجهة لتدعم العربية واليمين
 st.markdown("""
     <style>
     .main { text-align: right; direction: rtl; }
     div[data-testid="stSidebarNav"] { text-align: right; direction: rtl; }
-    label { text-align: right; display: block; width: 100%; }
-    .stButton>button { width: 100%; background-color: #007bff; color: white; }
+    .stDataFrame { direction: rtl; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📊 نظام إدارة الموارد البشرية والرواتب - ماجد")
-st.write(f"تاريخ اليوم: {datetime.now().strftime('%Y-%m-%d')}")
-st.divider()
+st.title("📑 نظام إدارة الرواتب والمسيرات الشهرية")
 
-# --- إدارة البيانات في ذاكرة الموقع ---
-if 'hr_data' not in st.session_state:
-    st.session_state.hr_data = None
+# --- إدارة قاعدة البيانات الثابتة ---
+if 'master_data' not in st.session_state:
+    st.session_state.master_data = None
 
-# --- القائمة الجانبية: رفع الملفات ---
 with st.sidebar:
-    st.header("📂 رفع بيانات الشهر")
-    file_a = st.file_uploader("ارفع إكسل الشركة الأولى", type=['xlsx'])
-    file_b = st.file_uploader("ارفع إكسل الشركة الثانية", type=['xlsx'])
+    st.header("⚙️ الإعدادات")
+    # رفع البيانات الأساسية (الماستر داتا)
+    uploaded_master = st.file_uploader("ارفع ملف الماستر داتا (الشركتين)", type=['xlsx'])
+    if st.button("تحديث قاعدة البيانات الثابتة"):
+        if uploaded_master:
+            df = pd.read_excel(uploaded_master)
+            # التأكد من وجود الأعمدة الشهرية
+            for col in ['مكافآت', 'حسومات', 'أيام غياب', 'صافي الراتب']:
+                if col not in df.columns:
+                    df[col] = 0.0
+            st.session_state.master_data = df
+            st.success("تم تحميل البيانات الثابتة")
+
+# --- عرض النظام والعمليات ---
+if st.session_state.master_data is not None:
     
-    if st.button("دمج ومعالجة البيانات"):
-        if file_a and file_b:
-            df1 = pd.read_excel(file_a)
-            df2 = pd.read_excel(file_b)
-            
-            df1['الشركة'] = 'الشركة الأولى'
-            df2['الشركة'] = 'الشركة الثانية'
-            
-            combined = pd.concat([df1, df2], ignore_index=True)
-            
-            # التأكد من وجود أعمدة المتغيرات الأساسية
-            for col in ['مكافآت', 'حسومات', 'غياب (أيام)', 'الحالة']:
-                if col not in combined.columns:
-                    combined[col] = 0.0 if col != 'الحالة' else 'نشط'
-            
-            st.session_state.hr_data = combined
-            st.success("تم التحديث!")
-
-# --- عرض وإدارة النظام ---
-if st.session_state.hr_data is not None:
+    # 1. خيار تحديد الشركة
+    companies = st.session_state.master_data['الشركة'].unique().tolist()
+    selected_company = st.selectbox("🎯 اختر الشركة التي تريد العمل عليها:", ["الكل"] + companies)
     
-    col_input, col_table = st.columns([1, 2])
+    # تصفية البيانات بناءً على الشركة المختارة
+    if selected_company == "الكل":
+        df_filtered = st.session_state.master_data
+    else:
+        df_filtered = st.session_state.master_data[st.session_state.master_data['الشركة'] == selected_company]
 
-    with col_input:
-        st.subheader("📝 إضافة مكافأة أو حسم")
-        with st.form("update_form", clear_on_submit=True):
-            emp_list = st.session_state.hr_data['اسم الموظف'].unique()
-            selected_emp = st.selectbox("اختر الموظف", emp_list)
-            action = st.selectbox("نوع الإجراء", ["مكافأة", "حسم", "غياب", "تغيير الحالة"])
-            val = st.number_input("المبلغ أو عدد الأيام", min_value=0.0)
-            status = st.radio("حالة الموظف", ["نشط", "موقوف"], horizontal=True)
-            
-            if st.form_submit_button("حفظ"):
-                idx = st.session_state.hr_data.index[st.session_state.hr_data['اسم الموظف'] == selected_emp].tolist()[0]
-                if action == "مكافأة": st.session_state.hr_data.at[idx, 'مكافآت'] = val
-                elif action == "حسم": st.session_state.hr_data.at[idx, 'حسومات'] = val
-                elif action == "غياب": st.session_state.hr_data.at[idx, 'غياب (أيام)'] = val
-                
-                st.session_state.hr_data.at[idx, 'الحالة'] = status
-                st.rerun()
+    st.subheader(f"📊 كشف المؤثرات الشهرية - {selected_company}")
+    st.info("يمكنك التعديل مباشرة على خانات المكافآت والحسومات في الجدول أدناه 👇")
 
-    with col_table:
-        st.subheader("📋 الجدول الموحد")
-        
-        # محرك بحث
-        search = st.text_input("🔍 ابحث بالاسم...")
-        display_df = st.session_state.hr_data
-        if search:
-            display_df = display_df[display_df['اسم الموظف'].str.contains(search, na=False)]
+    # 2. جدول تفاعلي للتعديل المباشر (Data Editor)
+    # هذا الجدول يسمح لك بإدخال المؤثرات يدوياً لكل موظف
+    edited_df = st.data_editor(
+        df_filtered,
+        column_config={
+            "مكافآت": st.column_config.NumberColumn("المكافآت", format="%.2f"),
+            "حسومات": st.column_config.NumberColumn("الحسومات", format="%.2f"),
+            "أيام غياب": st.column_config.NumberColumn("الغياب", step=1),
+            "الراتب الأساسي": st.column_config.NumberColumn(disabled=True),
+            "اسم الموظف": st.column_config.TextColumn(disabled=True),
+        },
+        hide_index=True,
+        use_container_width=True
+    )
 
-        st.dataframe(display_df, use_container_width=True)
-        
-        # زر التحميل النهائي
-        csv = st.session_state.hr_data.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 تحميل التقرير النهائي Excel", data=csv, file_name='final_payroll.csv')
+    # 3. حساب المسير النهائي
+    if st.button("🔄 إنشاء المسير النهائي وحساب الرواتب"):
+        # عملية حسابية بسيطة: أساسي + مكافأة - حسم
+        edited_df['صافي الراتب'] = (
+            edited_df['الراتب الأساسي'] + 
+            edited_df['مكافآت'] - 
+            edited_df['حسومات']
+        )
+        st.session_state.master_data.update(edited_df) # تحديث البيانات الأصلية
+        st.success("تم حساب المسير بنجاح!")
+        st.dataframe(edited_df[['اسم الموظف', 'الشركة', 'الراتب الأساسي', 'صافي الراتب']], use_container_width=True)
+
+    # 4. سحب المسير (Download)
+    final_csv = edited_df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        label=f"📥 سحب مسير رواتب ({selected_company})",
+        data=final_csv,
+        file_name=f"Payroll_{selected_company}_{datetime.now().strftime('%Y-%m')}.csv",
+        mime='text/csv'
+    )
 
 else:
-    st.warning("يرجى رفع ملفات الإكسل من القائمة الجانبية للبدء.")
+    st.warning("الرجاء رفع ملف الماستر داتا من القائمة الجانبية (يحتوي على أعمدة: اسم الموظف، الشركة، الراتب الأساسي).")
