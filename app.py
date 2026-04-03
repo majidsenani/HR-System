@@ -3,161 +3,133 @@ import pandas as pd
 from datetime import datetime
 
 # --- إعدادات الصفحة ---
-st.set_page_config(page_title="نظام إدارة الموارد البشرية", layout="wide")
+st.set_page_config(page_title="نظام رواتب ماجد", layout="wide")
 
-# تنسيق يدعم العربية والترتيب الجمالي
 st.markdown("""
     <style>
     .main { text-align: right; direction: rtl; }
     [data-testid="stSidebarNav"] { text-align: right; direction: rtl; }
     .stTabs [data-baseweb="tab-list"] { direction: rtl; gap: 10px; }
-    .stForm { background-color: #f8f9fb; padding: 25px; border-radius: 15px; border: 1px solid #e6e9ef; }
-    .header-style { color: #1c3d5a; border-bottom: 2px solid #007bff; padding-bottom: 5px; margin-bottom: 15px; }
+    .stForm { background-color: #fcfcfc; padding: 20px; border-radius: 15px; border: 1px solid #eee; }
+    div[data-testid="stMetric"] { background-color: #f0f2f6; padding: 10px; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📂 نظام إدارة الموارد البشرية المطور")
+st.title("📂 نظام إدارة الموارد البشرية - الإصدار الشامل")
 
 if 'master_data' not in st.session_state:
     st.session_state.master_data = None
 
-# دالة ذكية للبحث عن الأعمدة
-def get_col(df, keyword):
-    for col in df.columns:
-        if keyword.strip().lower() in col.strip().lower(): return col
-    return None
-
-# --- القائمة الجانبية (الفلاتر والرفع) ---
+# --- القائمة الجانبية (الرفع والفلترة) ---
 with st.sidebar:
-    st.header("⚙️ التحكم بالنظام")
+    st.header("⚙️ التحكم")
     uploaded_file = st.file_uploader("ارفع ملف الماستر داتا", type=['xlsx', 'csv'])
-    
-    if st.button("تحديث البيانات الأساسية"):
+    if st.button("تحديث قاعدة البيانات"):
         if uploaded_file:
             df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('xlsx') else pd.read_csv(uploaded_file)
-            df.columns = df.columns.str.strip()
-            # إضافة أعمدة المؤثرات في الذاكرة فقط (لا تظهر في التعديل)
+            # إضافة أعمدة المؤثرات إذا نقصت
             for c in ['مكافآت شهرية', 'حسومات شهرية', 'أيام غياب', 'حالة القيد']:
                 if c not in df.columns: df[c] = 0.0 if c != 'حالة القيد' else 'نشط'
             st.session_state.master_data = df
-            st.success("✅ تم التحميل")
+            st.success("✅ تم التحديث")
 
     if st.session_state.master_data is not None:
         st.divider()
-        c_co = get_col(st.session_state.master_data, 'الشركة')
-        all_cos = ["الكل"] + st.session_state.master_data[c_co].unique().tolist()
-        selected_co = st.selectbox("🎯 اختر الشركة:", all_cos)
+        # فلتر الشركة موجود دائماً في اليسار
+        all_cos = ["الكل"] + st.session_state.master_data['الشركة'].unique().tolist()
+        sel_co = st.selectbox("🎯 تصفية حسب الشركة:", all_cos)
 
 if st.session_state.master_data is not None:
-    df = st.session_state.master_data
-    # تصفية البيانات حسب الشركة المختارة من اليسار
-    if selected_co != "الكل":
-        df_filtered = df[df[get_col(df, 'الشركة')] == selected_co]
+    # تطبيق فلتر الشركة على كل النظام
+    full_df = st.session_state.master_data
+    if sel_co != "الكل":
+        df = full_df[full_df['الشركة'] == sel_co]
     else:
-        df_filtered = df
+        df = full_df
 
-    tab1, tab2, tab3, tab4 = st.tabs(["👥 قائمة الموظفين", "📅 المؤثرات والغياب", "⚙️ تعديل بيانات موظف", "💰 المسير النهائي"])
+    tab1, tab2, tab3, tab4 = st.tabs(["👥 قائمة الموظفين", "📅 المؤثرات والغياب", "⚙️ تعديل الملف الكامل", "💰 المسير النهائي"])
 
-    # --- التبويب الأول: القائمة مع البحث بالرقم الوظيفي ---
+    # --- التبويب الأول: البحث والقائمة ---
     with tab1:
-        st.subheader("📋 سجل الموظفين")
-        c_id = get_col(df, 'الرقم الوظيفي امنكو')
-        search_id = st.text_input("🔍 ابحث بالرقم الوظيفي (أمنكو):", key="search_main")
+        st.subheader("🔍 البحث السريع عن موظف")
+        search_val = st.text_input("ادخل (الرقم الوظيفي أمنكو) أو (رقم الهوية) للبحث:")
         
-        display_df = df_filtered
-        if search_id:
-            display_df = display_df[display_df[c_id].astype(str).str.contains(search_id)]
+        # منطق البحث الذكي
+        display_df = df
+        if search_val:
+            display_df = df[
+                (df['الرقم الوظيفي امنكو'].astype(str).str.contains(search_val)) | 
+                (df['رقم الهوية الوطنية '].astype(str).str.contains(search_val))
+            ]
         
-        # إخفاء أعمدة المؤثرات من هذا الجدول
-        cols_to_show = [c for c in display_df.columns if c not in ['مكافآت شهرية', 'حسومات شهرية', 'أيام غياب']]
-        st.dataframe(display_df[cols_to_show], use_container_width=True, hide_index=True)
+        # عرض البيانات الأساسية فقط في الجدول الرئيسي
+        main_cols = ['رقم الهوية الوطنية ', 'الالرقم الوظيفي امنكو', 'اسم الموظف', 'الشركة', 'المشروع', 'إجمالي الراتب ']
+        # التأكد من وجود الأعمدة قبل عرضها لتجنب الأخطاء
+        actual_cols = [c for c in main_cols if c in display_df.columns]
+        st.dataframe(display_df[actual_cols], use_container_width=True, hide_index=True)
 
-    # --- التبويب الثاني: المؤثرات مع التقويم ---
+    # --- التبويب الثاني: الغياب مع التقويم ---
     with tab2:
-        st.subheader("📝 إدخال المؤثرات الشهرية")
-        search_id_eff = st.text_input("🔍 ادخل الرقم الوظيفي لرصد مؤثرات الموظف:", key="search_eff")
-        target = df_filtered[df_filtered[c_id].astype(str) == search_id_eff] if c_id else pd.DataFrame()
+        st.subheader("📝 إدخال المؤثرات")
+        id_eff = st.text_input("ادخل الرقم الوظيفي للموظف المطلوب:")
+        target = df[df['الرقم الوظيفي امنكو'].astype(str) == id_eff]
         
         if not target.empty:
-            st.info(f"الموظف: {target.iloc[0][get_col(df, 'اسم الموظف')]}")
+            st.info(f"الموظف: {target.iloc[0]['اسم الموظف']}")
             with st.form("eff_form"):
-                type_eff = st.selectbox("نوع الإجراء:", ["مكافأة", "حسم", "غياب (تحديد تاريخ)"])
+                eff_type = st.selectbox("نوع المؤثر:", ["مكافأة", "حسم", "غياب (تقويم)"])
                 
-                if type_eff == "غياب (تحديد تاريخ)":
-                    col1, col2 = st.columns(2)
-                    with col1: d1 = st.date_input("من تاريخ:", datetime.now())
-                    with col2: d2 = st.date_input("إلى تاريخ:", datetime.now())
-                    days = (d2 - d1).days + 1
-                    st.warning(f"عدد الأيام: {max(0, days)}")
-                    val = float(max(0, days))
+                if eff_type == "غياب (تقويم)":
+                    c1, c2 = st.columns(2)
+                    with c1: d1 = st.date_input("من تاريخ:")
+                    with c2: d2 = st.date_input("إلى تاريخ:")
+                    val = float((d2 - d1).days + 1)
+                    st.warning(f"الأيام المحسوبة: {max(0, val)}")
                 else:
                     val = st.number_input("القيمة بالريال:", min_value=0.0)
                 
-                if st.form_submit_button("حفظ المؤثر"):
+                if st.form_submit_button("حفظ"):
                     idx = target.index[0]
-                    col_target = 'مكافآت شهرية' if type_eff == "مكافأة" else ('حسومات شهرية' if type_eff == "حسم" else 'أيام غياب')
-                    st.session_state.master_data.at[idx, col_target] = val
-                    st.success("✅ تم الحفظ")
+                    col = 'مكافآت شهرية' if eff_type == "مكافأة" else ('حسومات شهرية' if eff_type == "حسم" else 'أيام غياب')
+                    st.session_state.master_data.at[idx, col] = val
+                    st.success("تم الحفظ")
                     st.rerun()
 
-    # --- التبويب الثالث: تعديل منظم جداً ---
+    # --- التبويب الثالث: تعديل كل البيانات (بدون استثناء) ---
     with tab3:
-        st.subheader("⚙️ تعديل الملف الشخصي للموظف")
-        c_name = get_col(df, 'اسم الموظف')
-        emp_choice = st.selectbox("اختر الموظف:", df_filtered[c_name].unique())
+        st.subheader("⚙️ تعديل ملف الموظف الكامل")
+        # البحث بالاسم داخل التعديل
+        emp_name = st.selectbox("اختر الموظف المراد تعديله:", df['اسم الموظف'].unique())
+        idx = df[df['اسم الموظف'] == emp_name].index[0]
+        row = df.loc[idx]
         
-        if emp_choice:
-            idx = df[df[c_name] == emp_choice].index[0]
-            curr = df.loc[idx]
+        with st.form("universal_edit"):
+            st.write(f"تعديل كافة البيانات لـ: {emp_name}")
+            new_data = {}
+            # توزيع كل أعمدة الماستر داتا (15+ عمود) على 3 أعمدة للتنسيق
+            cols = st.columns(3)
+            for i, col in enumerate(df.columns):
+                # استبعاد أعمدة الحسابات الشهرية من بيانات الموظف الثابتة
+                if col not in ['مكافآت شهرية', 'حسومات شهرية', 'أيام غياب']:
+                    with cols[i % 3]:
+                        val = row[col]
+                        if isinstance(val, (int, float)):
+                            new_data[col] = st.number_input(f"{col}", value=float(val))
+                        else:
+                            new_data[col] = st.text_input(f"{col}", value=str(val))
             
-            with st.form("structured_edit"):
-                # المجموعة الأولى: الرواتب والبدلات
-                st.markdown("<h3 class='header-style'>💰 الرواتب والبدلات</h3>", unsafe_allow_html=True)
-                c1, c2, c3, c4 = st.columns(4)
-                with c1: n_basic = st.number_input("الراتب الأساسي", value=float(curr[get_col(df, 'الراتب الأساسي')]))
-                with c2: n_house = st.number_input("بدل السكن", value=float(curr[get_col(df, 'بدل السكن')]))
-                with c3: n_trans = st.number_input("بدل مواصلات", value=float(curr[get_col(df, 'مواصلات')]))
-                with c4: n_total = st.number_input("إجمالي الراتب (المثبت)", value=float(curr[get_col(df, 'إجمالي الراتب')]))
+            if st.form_submit_button("حفظ كافة التغييرات"):
+                for k, v in new_data.items():
+                    st.session_state.master_data.at[idx, k] = v
+                st.success("✅ تم التحديث بنجاح")
+                st.rerun()
 
-                # المجموعة الثانية: البيانات الوظيفية والبنكية
-                st.markdown("<h3 class='header-style'>📝 البيانات الوظيفية والبنكية</h3>", unsafe_allow_html=True)
-                ca, cb, cc = st.columns(3)
-                with ca: 
-                    n_proj = st.text_input("المشروع", value=str(curr[get_col(df, 'المشروع')]))
-                    n_job = st.text_input("المسمى الوظيفي", value=str(curr[get_col(df, 'المسمي الوظيفي')]))
-                with cb:
-                    n_bank = st.text_input("البنك", value=str(curr[get_col(df, 'البنك')]))
-                    n_iban = st.text_input("الايبان", value=str(curr[get_col(df, 'الايبان')]))
-                with cc:
-                    n_id_nat = st.text_input("الهوية الوطنية", value=str(curr[get_col(df, 'رقم الهوية الوطنية')]))
-                    n_status = st.radio("حالة القيد", ["نشط", "موقوف"], index=0 if curr['حالة القيد'] == 'نشط' else 1)
-
-                if st.form_submit_button("حفظ التعديلات النهائية"):
-                    # تحديث القيم في الذاكرة
-                    updates = {
-                        get_col(df, 'الراتب الأساسي'): n_basic, get_col(df, 'بدل السكن'): n_house,
-                        get_col(df, 'مواصلات'): n_trans, get_col(df, 'إجمالي الراتب'): n_total,
-                        get_col(df, 'المشروع'): n_proj, get_col(df, 'المسمي الوظيفي'): n_job,
-                        get_col(df, 'البنك'): n_bank, get_col(df, 'الايبان'): n_iban,
-                        get_col(df, 'رقم الهوية الوطنية'): n_id_nat, 'حالة القيد': n_status
-                    }
-                    for k, v in updates.items(): st.session_state.master_data.at[idx, k] = v
-                    st.success("✅ تم تحديث بيانات الموظف")
-                    st.rerun()
-
-    # --- التبويب الرابع: المسير النهائي ---
+    # --- التبويب الرابع: المسير ---
     with tab4:
-        st.subheader("💰 كشف المسير الشهري (شامل المؤثرات)")
-        final_df = df_filtered.copy()
-        
-        # حساب الصافي النهائي
-        c_bs = get_col(final_df, 'الراتب الأساسي')
-        c_hs = get_col(final_df, 'بدل السكن')
-        final_df['صافي المستحق النهائي'] = (final_df[c_bs] + final_df[c_hs] + 
-                                           final_df['مكافآت شهرية'] - final_df['حسومات شهرية'])
-        
-        st.dataframe(final_df, use_container_width=True, hide_index=True)
-        st.download_button("📥 تحميل المسير (Excel)", final_df.to_csv(index=False).encode('utf-8-sig'), "Payroll_Final.csv")
+        res = df.copy()
+        res['صافي المستحق'] = res['إجمالي الراتب '] + res['مكافآت شهرية'] - res['حسومات شهرية']
+        st.dataframe(res, use_container_width=True)
+        st.download_button("📥 تحميل المسير", res.to_csv(index=False).encode('utf-8-sig'), "Payroll.csv")
 
 else:
-    st.info("💡 يرجى رفع ملف الماستر داتا من القائمة الجانبية.")
+    st.info("💡 ارفع ملف الماستر داتا من القائمة الجانبية.")
